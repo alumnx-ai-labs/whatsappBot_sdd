@@ -8,6 +8,18 @@
 
 **Input**: User description: "Build a greenfield WhatsApp Meeting Assistant for businesses."
 
+## Clarifications
+
+### Session 2026-08-24
+
+- Q: Should the assistant guide visitors through one question at a time, accept complete
+  natural-language requests, or support both approaches? -> A: Hybrid flow: parse complete details, ask
+  for missing or ambiguous fields, and fall back to guided prompts.
+- Q: Should the MVP support text messages only, or also process voice messages and images sent through
+  WhatsApp? -> A: Text messages only.
+- Q: When a visitor stops responding during an active scheduling conversation, should the assistant
+  send a reminder before expiring the proposal? -> A: Expire silently after a defined period.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Visitor schedules a confirmed meeting (Priority: P1)
@@ -28,13 +40,16 @@ confirmation.
 1. **Given** a returning visitor with an existing record, **When** they request a meeting and provide
    valid details, **Then** the assistant greets them by the stored name and presents the proposed details
    for explicit confirmation.
-2. **Given** a new visitor, **When** they provide the required onboarding information and meeting
+2. **Given** a visitor sends complete, unambiguous meeting details in natural language, **When** the
+  assistant processes the message, **Then** it captures the recognized details, asks only for missing
+  or ambiguous information, and presents a proposal when all required details are valid.
+3. **Given** a new visitor, **When** they provide the required onboarding information and meeting
    details, **Then** the assistant stores the visitor information and presents the proposed appointment
    for confirmation.
-3. **Given** a visitor has explicitly confirmed the proposed details, **When** Hello Oscar returns a
+4. **Given** a visitor has explicitly confirmed the proposed details, **When** Hello Oscar returns a
    successful booking result, **Then** the system stores the external booking identifier and tells the
    visitor the meeting is confirmed.
-4. **Given** a visitor has explicitly confirmed the proposed details, **When** Hello Oscar rejects,
+5. **Given** a visitor has explicitly confirmed the proposed details, **When** Hello Oscar rejects,
    times out, or returns an ambiguous result, **Then** the system does not mark the booking confirmed,
    tells the visitor it was not confirmed, records the failure or uncertainty, and offers recovery.
 
@@ -57,8 +72,9 @@ confirmation.
    location, **Then** the system updates the proposal and presents the revised details without booking.
 2. **Given** a proposal is awaiting confirmation, **When** the visitor sends an ambiguous response,
    **Then** the system asks for an unambiguous confirmation or modification and does not book.
-3. **Given** a proposal is awaiting confirmation, **When** the visitor stops responding, **Then** the
-   system does not book and retains an unconfirmed state for the defined recovery period.
+3. **Given** a proposal is awaiting confirmation, **When** the visitor stops responding until the
+  defined expiry period elapses, **Then** the system silently expires the proposal, does not book,
+  and requires a new interaction to start another proposal.
 
 ---
 
@@ -123,6 +139,8 @@ confirmation and verify it appears.
 - Hello Oscar is unavailable, slow, rejects a request, returns malformed data, or confirms externally
   while the application loses the response; the local record remains non-confirmed until the result is
   authoritatively reconciled.
+- A visitor stops responding while a proposal awaits confirmation; after the defined expiry period the
+  proposal expires without a reminder or outbound message and cannot be booked from the expired state.
 - A CSV is empty, malformed, encoded unexpectedly, has missing headers, extra columns, duplicate rows,
   invalid values, or exceeds the supported size; the upload response identifies whether no rows or only
   affected rows were processed.
@@ -148,12 +166,22 @@ confirmation and verify it appears.
 
 - **FR-001**: The system MUST receive incoming WhatsApp messages and associate each message with a
   conversation context.
+- **FR-001a**: The MVP MUST support text messages as the visitor input format. Voice messages and
+  image-based requests are outside the MVP and MUST receive a clear response directing the visitor to
+  send the required information as text.
 - **FR-002**: The system MUST identify a returning visitor using the approved unique identifier and
   MUST use the stored name for a personalized greeting when available.
 - **FR-003**: The system MUST recognize a new visitor and collect the approved mandatory onboarding
   fields before proceeding with a meeting request.
-- **FR-004**: The system MUST identify meeting intent and collect the required date, time, and location
-  information where applicable.
+- **FR-004**: The system MUST identify meeting intent from natural-language messages when possible and
+  MUST collect the required date, time, and location information where applicable.
+- **FR-004a**: When a visitor provides complete and unambiguous required details, the assistant MUST
+  reuse those details and ask only for missing or ambiguous information.
+- **FR-004b**: When a visitor's message cannot be interpreted reliably or leaves required information
+  missing, the assistant MUST fall back to concise, one-question-at-a-time guided prompts.
+- **FR-004c**: The system MUST silently expire a proposal after the approved inactivity period when
+  explicit confirmation has not been received. Expiry MUST NOT trigger a booking or reminder message,
+  and a visitor MUST start a new proposal through a later interaction.
 - **FR-005**: The system MUST validate visitor, business, and meeting data before advancing the
   conversation.
 - **FR-006**: The system MUST summarize the proposed appointment, including date, time, location, and
@@ -300,13 +328,13 @@ customer data, booking data, and audit evidence.
 
 ### MVP Scope
 
-**In scope**: Incoming and outgoing WhatsApp conversations; visitor identification; returning-visitor
+**In scope**: Incoming and outgoing WhatsApp text conversations; visitor identification; returning-visitor
 recognition and greeting; new-visitor onboarding; meeting request handling; date, time, and applicable
 location collection; appointment confirmation; Hello Oscar scheduling; confirmed and failed booking
 handling; persistence; business/customer metadata entry and updates; CSV upload; confirmed-booking
 view; refresh; security, observability, and duplicate protection required for these workflows.
 
-**Out of scope**: WhatsApp marketing campaigns; bulk promotional messaging; payment processing; CRM
+**Out of scope**: Voice messages; image-based requests; WhatsApp marketing campaigns; bulk promotional messaging; payment processing; CRM
 functionality; advanced analytics; lead scoring; voice calling; complex reporting; multi-tenant SaaS
 management; advanced calendar administration; and automated marketing campaigns.
 
@@ -355,6 +383,7 @@ management; advanced calendar administration; and automated marketing campaigns.
 - The default CSV policy is partial success with explicit row-level reporting, subject to approval.
 - The Hello Oscar contract will be supplied and approved before planning; no provider contract behavior
   is inferred in this specification.
+- The MVP accepts visitor input as text messages only; voice and image interpretation are deferred.
 
 ## Open Questions
 
@@ -371,3 +400,234 @@ management; advanced calendar administration; and automated marketing campaigns.
 Each functional requirement MUST map to one or more user-story acceptance scenarios and corresponding
 verification evidence in the implementation plan. The approved specification is the single source of
 truth for that mapping; requirement changes require impact assessment before implementation.
+
+## gherkin senarious
+
+Feature: Incoming WhatsApp interaction
+
+  Scenario: Receive a visitor message through WhatsApp
+    Given the WhatsApp integration is available
+    When a visitor sends a message through WhatsApp
+    Then the system should receive the visitor message
+    And the system should process the interaction
+
+  Scenario: Visitor initiates an interaction
+    Given the WhatsApp integration is available
+    When a visitor sends the first message
+    Then the system should allow the visitor to initiate the interaction
+    And no manual administrator intervention should be required
+
+Feature: Visitor identification
+
+  Scenario: Identify a visitor using available contact information
+    Given a visitor sends a WhatsApp message
+    And contact information is available from the WhatsApp interaction
+    When the system processes the message
+    Then the system should attempt to identify the visitor
+
+  Scenario: Contact information is unavailable
+    Given a visitor sends a WhatsApp message
+    And the required contact information is unavailable
+    When the system attempts to identify the visitor
+    Then the system should not assume the visitor identity
+
+Feature: Returning visitor recognition
+
+  Scenario: Recognize an existing visitor
+    Given a visitor's contact information is associated with an existing record
+    When the visitor sends a WhatsApp message
+    Then the system should recognize the visitor as an existing user
+    And the assistant should provide a personalized greeting
+
+  Scenario: Visitor cannot be matched to an existing record
+    Given a visitor's contact information is not associated with an existing record
+    When the visitor sends a WhatsApp message
+    Then the system should not treat the visitor as an existing user
+
+Feature: New visitor onboarding
+
+  Scenario: Collect information from a new visitor
+    Given the visitor cannot be identified as an existing user
+    When the assistant begins the visitor onboarding flow
+    Then the assistant should collect the required visitor information
+
+  Scenario: Collect name from a new visitor
+    Given the visitor is a new visitor
+    When the assistant requests the visitor's name
+    And the visitor provides their name
+    Then the system should capture the provided name
+
+  Scenario: Collect business name from a new visitor
+    Given the visitor is a new visitor
+    When the assistant requests the business name
+    And the visitor provides the business name
+    Then the system should capture the provided business name
+
+Feature: Business information
+
+  Scenario: Store business information
+    Given business information is provided
+    When the information is submitted
+    Then the system should maintain the business information
+
+  Scenario: Prevent invalid business information from being stored
+    Given business information is submitted
+    And the information does not satisfy the defined validation requirements
+    When the information is submitted
+    Then the system should prevent the invalid information from being stored
+
+Feature: Meeting request handling
+
+  Scenario: Identify a meeting request
+    Given a visitor is interacting with the assistant
+    When the visitor requests a meeting
+    Then the assistant should identify the meeting request
+    And the assistant should collect the information required to create the meeting
+
+  Scenario: Collect meeting date
+    Given a visitor wants to schedule a meeting
+    When the assistant requests the meeting date
+    And the visitor provides a date
+    Then the system should capture the requested date
+
+  Scenario: Collect meeting time
+    Given a visitor wants to schedule a meeting
+    When the assistant requests the meeting time
+    And the visitor provides a time
+    Then the system should capture the requested time
+
+  Scenario: Collect meeting location when applicable
+    Given a visitor wants to schedule a meeting
+    When a meeting location is required
+    And the visitor provides a location
+    Then the system should capture the meeting location
+
+  Feature: Appointment confirmation
+
+  Scenario: Present proposed appointment details
+    Given the required meeting information has been collected
+    When the assistant prepares the appointment
+    Then the assistant should summarize the proposed appointment details to the visitor
+
+  Scenario: Visitor confirms appointment details
+    Given the assistant has presented the proposed appointment details
+    When the visitor confirms the appointment
+    Then the system should proceed with the booking process
+
+  Scenario: Visitor modifies appointment details
+    Given the assistant has presented the proposed appointment details
+    When the visitor requests a modification
+    Then the system should allow the appointment details to be modified
+    And the system should not submit the original appointment as the final booking
+
+  Scenario: Appointment is not submitted before confirmation
+    Given the assistant has presented the proposed appointment details
+    And the visitor has not confirmed the appointment
+    When the system processes the conversation
+    Then the system should not submit the appointment to the scheduling service
+
+Feature: Hello Oscar integration
+
+  Scenario: Send a confirmed booking request to Hello Oscar
+    Given the visitor has confirmed the appointment
+    And the required booking information is available
+    When the system submits the booking request
+    Then the backend should send the booking request to Hello Oscar
+
+  Scenario: Hello Oscar returns a successful booking response
+    Given a booking request has been sent to Hello Oscar
+    When Hello Oscar successfully confirms the meeting
+    Then the system should receive the successful booking result
+
+  Scenario: Hello Oscar rejects the booking request
+    Given a booking request has been sent to Hello Oscar
+    When Hello Oscar rejects the booking request
+    Then the system should receive the failure result
+
+
+Feature: Booking confirmation
+
+  Scenario: Confirm a successfully created meeting
+    Given a booking request has been sent to Hello Oscar
+    When Hello Oscar successfully confirms the meeting
+    Then the system should treat the meeting as confirmed
+    And the assistant should communicate the successful booking to the visitor
+
+  Scenario: Do not confirm a failed booking
+    Given a booking request has been sent to Hello Oscar
+    When Hello Oscar does not successfully confirm the meeting
+    Then the system should not treat the meeting as confirmed
+    And the assistant should not tell the visitor that the meeting is confirmed
+
+Feature: Booking failure handling
+
+  Scenario: Handle a failed booking
+    Given a booking request has been sent to Hello Oscar
+    When the meeting scheduling operation fails
+    Then the system should communicate an appropriate failure response to the visitor
+
+  Scenario: Provide a next action after booking failure
+    Given a booking attempt has failed
+    When a suitable recovery action is available
+    Then the system should provide the appropriate next action to the visitor
+
+Feature: Prevent false booking confirmation
+
+  Scenario: Do not confirm when Hello Oscar fails
+    Given the visitor has requested a meeting
+    And the booking request has been sent to Hello Oscar
+    When Hello Oscar fails to confirm the booking
+    Then the system should not mark the booking as confirmed
+    And the visitor should not receive a successful booking confirmation 
+
+s start to finish our design in venture and rechange it specifically doing the structuring share one picture start to finish in this result forty five for example a feature start service center by four the lines visible scheduling considered the business that should be done t they recharge first developed local petis where you devops to value next walk spectral development to the steps route in a collaborative easy most changing that's what you want to show right over here the customer appointment business changes the customer can cancel client it tells who change the role into online answers again next month how do you find out you that much hitting key in some other and change in the f es mainfold on the folder iler main folder ma'am actually implementation discussion for git up in me third party went start Microsoft they have Google P S or the way basically anthropic drop the cube is brough int three upens code schepal free requisite free requisites it have account VS co to empty target manager python better UV efty terminal but terminal different service night starts session so much of basics detailskey night pursue Xp mere track longer developers present in John developers and the detail is site must installation I play to do it a score UV UP and takes a like open w score and run with install up see Sl U install name a project create Shala U V E e ranch kernel scraps pick in start U P in Street where a command on the Windows main Sir you don't give me this command you give me install and shipping up to the start of it so that you are making inquisit and already recognized you will start so you would act on share mini launch and VS four terminal step by step as to clock the ratio of the greenfield I am going to cover Sholder Special Slash double course containing a dot space space slash folder and drought space slash folder love double code is not very skill in command so reports and constitutional discuss about research on the GitHub then slash run this slash next logical flow never input comandas expected output output ye input expected first why I say example back to ethic if customers all center in exampleplace to give us the input that is a hands on right that's what I say hands on a ten random connections charge microproject is coding model right started down example smal yellow it based in pedala in the actual return technology you not understanding it meant a show reporting charge are they never user to choose no brecher tracker in only especially chart separates question input two times guy the actual answers expected output there expected output calor answer the following questions from core a simple written a bad on the next fits into new law is aninput input this is made usernates become the spirit is describe and sleepl that's what I mean by examin the hands on hidden but in a standard hands on came to hands on this i cannot because there's nothing in this output laws every feature must be must begin in kamal output and a s should show the output expected output only expected remains it to screen shows text up shows ten drip direction not yet a specification is so than the fancy the ma simply than exactly what is cloud nonsense verbal shakespeare language that your applicant direction right so customers should be able to book up the arm is where to heat is a character constitutional constitutional constitution is trading purchase for example sample file direction not specification start from this exact go by chart unless the speaker is until repaisedt special development forces appointment to define what was plant car symbol exercise setup speculture you need to be just on a speculate in the works a difficult clot way installed wanted to be charge and starts kit u reak terminal sir developer sir where non technical nor technical pouture document requirement by in the income working so they should know who changed priorityscenarios functional non functional until I will only designer Up Speck is only for spectras like one or a race test case application if actual test caso complete test specific the mobile carriage on the transferbreak way of design is pronouncing it as to be used and this is a world can relate and start energy in a mission to users to looking flow should be faster can be destinated by question make sense expected generic cancer and smart answer at law you want me to understand the department in the name of the value the spawner into customer service service to confirm a pattern and the compliance by put up in stocks on the diary makka on the scale and basic so one thing that started addresses they are concerned was we returned as the drop field project to green fields in difference greenfield project continues scratch and zero into VS and the existing project mean specked vari modification need to specket on set your sister under scratch which is now tweak are brown the lake new project a green fill mala especially initialized eighty percent of their projects are to and then business business contact any questions or it may eventually have one point nine what arefigure it out but as land to theory eighty percent of restricts are not twenty percent are only soin one hundred again something expression that's what we should cover this letters is from scratch easily one project with the scroning or mission the whatsapp what the bjs in zero the whatsapp both a dros minority court members issues and the country experience proper the project management start no answer change existing projects that it's what I'm saying versus the top so I'm one more thing is the me in the coffee sports on by the end of long term Saturday only this thing based in my Stefan modules expansion key learnings of three teams and already details greeted experiences realize that the reviews are on the sport teams were just already discovery session of the eighth of the discovery section of controlin Just Long is the process basically discovering bars saying the Sd project project Study green placeholders written of the first in terms of Israel it rating we change deters which is zero to online answer External booking authority
+
+  Scenario: Use Hello Oscar confirmation as the booking result
+    Given a meeting booking request has been submitted
+    When Hello Oscar returns the booking result
+    Then the system should use the returned result to determine whether the meeting is confirmed
+
+Feature: Duplicate metadata handling
+
+  Scenario: Apply the defined duplicate policy
+    Given metadata for a contact already exists
+    When the same contact metadata is submitted again
+    Then the system should apply the defined duplicate or update policy and highlighting
+    mobile highlight
+    s highlighted old on strike its changeFeature: Invalid and incomplete visitor interactions
+
+  Scenario: Visitor provides incomplete required information
+    Given the visitor is required to provide information
+    When the visitor provides incomplete information
+    Then the system should not treat the missing information as provided
+
+  Scenario: Visitor provides invalid information
+    Given the visitor is required to provide valid information
+    When the visitor provides information that fails the defined validation
+    Then the system should not store the invalid information as valid data
+
+  Scenario: Booking information is incomplete
+    Given a visitor wants to schedule a meeting
+    When required booking information is missing
+    Then the system should not submit an incomplete booking request to Hello Oscar
+
+  Scenario: External booking operation fails
+    Given a valid booking request is submitted
+    When the external booking operation fails
+    Then the system should not mark the booking as confirmed
+
+  Scenario: External booking result is not successful
+    Given a booking request has been submitted
+    When the external service does not return a successful confirmation
+    Then the system should not communicate the booking as confirmed
+
+  Scenario: Administrator submits invalid metadata
+    Given an administrator is adding business metadata
+    When the submitted metadata fails the defined validation
+    Then the system should prevent the invalid record from being stored
+
+  Scenario: CSV contains invalid records
+    Given a CSV file contains invalid records
+    When the administrator uploads the file
+    Then the system should validate the records
+    And invalid records should not be stored as valid data
