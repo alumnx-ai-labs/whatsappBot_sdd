@@ -20,6 +20,20 @@
 - Q: When a visitor stops responding during an active scheduling conversation, should the assistant
   send a reminder before expiring the proposal? -> A: Expire silently after a defined period.
 
+### Session 2026-08-25
+
+- Q: What approved Hello Oscar contract should the MVP use for booking creation and reconciliation? ->
+  A: The official Hello Oscar contract must be provided and approved before production integration;
+  the contract must define the base URL, authentication, endpoints, request/response schemas,
+  availability behavior, external booking identifier, timeout/retry behavior, timezone handling, and
+  reconciliation behavior.
+- Q: How long should conversations, customer records, booking records, and operational audit evidence
+  be retained before deletion? -> A: 90 days, unless a documented legal hold applies.
+- Q: Should the exact first-contact trigger for this bot be the case-insensitive phrase "Hello Oscar"? ->
+  A: Yes. "Hello Oscar" is the sole new-session routing trigger; generic greetings remain unclaimed.
+- Q: Which administrator authentication model should the MVP require? -> A: Email and password
+  authentication with a backend-managed secure HttpOnly session cookie.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Visitor schedules a confirmed meeting (Priority: P1)
@@ -166,6 +180,9 @@ confirmation and verify it appears.
 
 - **FR-001**: The system MUST receive incoming WhatsApp messages and associate each message with a
   conversation context.
+- **FR-001b**: Because the WhatsApp number is shared by multiple bots, the system MUST claim a new
+  conversation only when the message matches the case-insensitive phrase "Hello Oscar". Generic
+  greetings such as "hi", "hello", and "hie" without an active session MUST return `handled:false`.
 - **FR-001a**: The MVP MUST support text messages as the visitor input format. Voice messages and
   image-based requests are outside the MVP and MUST receive a clear response directing the visitor to
   send the required information as text.
@@ -217,6 +234,9 @@ confirmation and verify it appears.
 - **FR-021**: The system MUST allow an authorized administrator to refresh the confirmed-booking view.
 - **FR-022**: The system MUST enforce authorized access for administrative operations and protect
   customer and booking information.
+- **FR-022a**: The MVP MUST authenticate administrators with email and password credentials and a
+  backend-managed secure HttpOnly session cookie. The session MUST support explicit logout and MUST NOT
+  be exposed to frontend script as a credential.
 - **FR-023**: The system MUST record sufficient observable events for inbound interactions, visitor
   identification, booking attempts, provider results, failures, and important state transitions without
   unnecessarily exposing sensitive data.
@@ -369,7 +389,8 @@ management; advanced calendar administration; and automated marketing campaigns.
 - Hello Oscar provides a supported meeting scheduling service and a definitive success/failure result,
   but its contract details are not assumed until documented and approved.
 - A business has one or more defined meeting locations or an approved way to collect a location.
-- Administrators are pre-authorized business users; the authentication mechanism remains to be selected.
+- Administrators are pre-authorized business users authenticated with email and password through a
+  backend-managed secure HttpOnly session cookie.
 - The MVP has one administrator role; finer-grained administrator roles are out of scope.
 - Only operational data needed to support conversations, bookings, administration, recovery, and audit
   is retained, subject to the approved deletion process.
@@ -387,13 +408,15 @@ management; advanced calendar administration; and automated marketing campaigns.
 
 ## Open Questions
 
-1. **Hello Oscar contract and booking recovery**: The contract will be supplied separately and MUST be
-  approved before planning. It must define the base URL, authentication, endpoints, schemas,
-  availability behavior, timezone, timeout/retry rules, cancellation/rescheduling support, and
-  reconciliation behavior after a lost response.
-2. **Deletion implementation details**: The single administrator role and operational-data-only
-  retention policy are approved. The specific deletion schedule, deletion triggers, and treatment of
-  legally required audit evidence MUST be defined before release.
+1. **Hello Oscar contract and booking recovery**: The official contract remains a release-blocking
+  prerequisite for production integration. It MUST be supplied and approved before the provider adapter
+  is enabled, and it must define the base URL, authentication, endpoints, schemas, availability behavior,
+  timezone, timeout/retry rules, cancellation/rescheduling support, and reconciliation behavior after a
+  lost response. Until then, only a local stub is permitted.
+2. **Deletion implementation details**: Conversation history, customer records, booking records, and
+  operational audit evidence MUST be retained for 90 days and then deleted, unless a documented legal
+  hold applies. The deletion process must be scheduled, auditable, and must not expose deleted data to
+  administrators or visitors.
 
 ## Traceability
 
