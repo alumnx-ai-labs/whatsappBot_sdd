@@ -34,6 +34,14 @@
 - Q: Which administrator authentication model should the MVP require? -> A: Email and password
   authentication with a backend-managed secure HttpOnly session cookie.
 
+### Session 2026-08-26
+
+- Q: Which authoritative clock basis should determine proposal expiry? -> A: UTC server time for all
+  inactivity calculations.
+- Q: Should every valid inbound user interaction reset the proposal inactivity timer? -> A: Yes. Every
+  valid inbound interaction while the proposal is active, including clarification and modification,
+  resets the timer.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Visitor schedules a confirmed meeting (Priority: P1)
@@ -89,6 +97,19 @@ confirmation.
 3. **Given** a proposal is awaiting confirmation, **When** the visitor stops responding until the
   defined expiry period elapses, **Then** the system silently expires the proposal, does not book,
   and requires a new interaction to start another proposal.
+
+**Expiry boundary acceptance criteria for Azure issue #5 / US2-A4**:
+
+4. **Given** an active proposal with inactivity duration `T`, **When** the authoritative UTC server
+  time is `T-1` from the last valid inbound interaction, **Then** the proposal remains active and
+  eligible for a valid confirmation or modification.
+5. **Given** an active proposal with inactivity duration `T`, **When** the authoritative UTC server
+  time is exactly `T` from the last valid inbound interaction, **Then** the proposal is expired,
+  inactive, cannot be booked, and no reminder is sent.
+6. **Given** a proposal that expired at exactly `T`, **When** the authoritative UTC server time is
+  `T+1`, **Then** the proposal remains expired and cannot be booked from that proposal state.
+7. **Given** an active proposal has received a valid inbound interaction, **When** that interaction is
+  processed, **Then** the inactivity timer resets from that interaction's accepted server timestamp.
 
 ---
 
@@ -155,6 +176,8 @@ confirmation and verify it appears.
   authoritatively reconciled.
 - A visitor stops responding while a proposal awaits confirmation; after the defined expiry period the
   proposal expires without a reminder or outbound message and cannot be booked from the expired state.
+  Expiry uses the backend server's UTC clock, occurs exactly at `T`, and every valid inbound interaction
+  while the proposal is active resets the inactivity timer.
 - A CSV is empty, malformed, encoded unexpectedly, has missing headers, extra columns, duplicate rows,
   invalid values, or exceeds the supported size; the upload response identifies whether no rows or only
   affected rows were processed.
@@ -192,13 +215,34 @@ confirmation and verify it appears.
   fields before proceeding with a meeting request.
 - **FR-004**: The system MUST identify meeting intent from natural-language messages when possible and
   MUST collect the required date, time, and location information where applicable.
+- **FR-004d**: For this maintenance scope, a complete meeting message is one that clearly expresses a
+  meeting request and provides all three required meeting fields: date, time, and location. Accepted
+  representative patterns include: `Book a meeting on 2026-09-01 at 14:30 at Downtown Office`, `I need
+  a meeting tomorrow at 2pm at the Main Office`, and `Can we meet on Friday at 10:00 AM in Conference
+  Room A`. Equivalent natural-language wording is accepted when each value maps to exactly one valid
+  date, time, and location.
+- **FR-004e**: A message is unambiguous only when the date resolves to one calendar date, the time
+  resolves to one clock time, and the location resolves to one supported location without relying on
+  an unstated assumption. Relative dates such as `today`, `tomorrow`, and weekday names MUST be resolved
+  using the backend server's configured business timezone; numeric ISO dates and explicit times MUST be
+  interpreted directly. If no business timezone is configured, UTC MUST be used. Date-only values MUST
+  not be interpreted as a time, and a location phrase MUST not include trailing unrelated message text.
+- **FR-004f**: The assistant MUST proceed directly to a proposal when a message is complete, unambiguous,
+  and all extracted values pass validation. It MUST ask a follow-up question only when a required field
+  is missing, a value is invalid or unavailable, or multiple interpretations remain possible. Follow-up
+  questions MUST request one missing or ambiguous field at a time. It MUST not ask for a field that was
+  already captured and validated from the same message.
 - **FR-004a**: When a visitor provides complete and unambiguous required details, the assistant MUST
   reuse those details and ask only for missing or ambiguous information.
 - **FR-004b**: When a visitor's message cannot be interpreted reliably or leaves required information
   missing, the assistant MUST fall back to concise, one-question-at-a-time guided prompts.
 - **FR-004c**: The system MUST silently expire a proposal after the approved inactivity period when
   explicit confirmation has not been received. Expiry MUST NOT trigger a booking or reminder message,
-  and a visitor MUST start a new proposal through a later interaction.
+  and a visitor MUST start a new proposal through a later interaction. The calculation MUST use the
+  backend server's UTC clock and MUST expire at the exact boundary when elapsed inactivity equals `T`.
+  Elapsed inactivity less than `T` MUST remain active, and elapsed inactivity greater than `T` MUST
+  remain expired. Every valid inbound user interaction while the proposal is active MUST reset the
+  inactivity timer from that interaction's accepted UTC server timestamp.
 - **FR-005**: The system MUST validate visitor, business, and meeting data before advancing the
   conversation.
 - **FR-006**: The system MUST summarize the proposed appointment, including date, time, location, and
@@ -226,9 +270,13 @@ confirmation and verify it appears.
 - **FR-017**: The system MUST support bulk metadata upload through CSV using the approved schema and
   validation rules.
 - **FR-018**: The system MUST report CSV results by row, including accepted, rejected, duplicate, and
-  processing-error outcomes, according to the approved partial-success policy.
+  processing-error outcomes, according to the approved partial-success policy. The final summary MUST
+  include `total_rows`, `created_rows`, `failed_rows`, `skipped_rows`, and row-specific validation errors.
 - **FR-019**: The system MUST apply one deterministic policy to duplicate CSV rows and existing-record
-  matches, and MUST report whether each record was created, updated, skipped, or rejected.
+  matches, and MUST report whether each record was created, updated, skipped, or rejected. The first
+  valid occurrence of a phone number in a file MUST be processed; later canonical-equivalent occurrences
+  MUST be reported as skipped duplicates. A valid row matching an existing system record MUST update
+  that record and be reported as `UPDATED`.
 - **FR-020**: The system MUST allow an authorized administrator to view confirmed bookings and show
   customer, business, date, time, location, creation time, and booking status.
 - **FR-021**: The system MUST allow an authorized administrator to refresh the confirmed-booking view.
@@ -333,9 +381,42 @@ retention, deletion, privacy obligations, and audit evidence before release.
 The CSV contract MUST define a header-based schema for business/customer metadata, field formats,
 required fields, encoding, maximum file and row limits, normalization, and allowed values. The upload
 MUST validate each row before storage, identify row numbers in errors, reject malformed files safely,
-and apply the same deterministic duplicate policy as single-entry updates. The approved contract MUST
-state whether valid rows are committed when other rows fail; until then, the default assumption is
-partial success with an explicit result report and no silent row loss.
+and apply the same deterministic duplicate policy as single-entry updates. Valid rows MUST be committed
+even when other rows fail, so mixed valid and invalid files MUST support partial success with no silent
+row loss.
+
+#### Authoritative CSV Processing Outcome Matrix
+
+The following matrix is authoritative for each data row. `row_number` is one-based and includes the
+header as row 1.
+
+| Row condition | Outcome | Storage behavior | Required row result |
+|---|---|---|---|
+| Required fields are valid and the phone number normalizes to a valid canonical number not seen earlier in the file and not present in the system | `CREATED` | Create a new metadata record | `row_number`, `outcome: CREATED` |
+| Required fields are valid and the canonical phone number already exists in the system | `UPDATED` | Update the existing metadata record using the same field rules as single-entry update | `row_number`, `outcome: UPDATED` |
+| The canonical phone number duplicates an earlier row in the same file | `SKIPPED` | Do not write the later row | `row_number`, `outcome: SKIPPED`, `reason`, and `duplicate_of_row` |
+| The phone number is missing, malformed, or invalid after normalization | `REJECTED` | Do not write the row | `row_number`, `outcome: REJECTED`, field-specific `errors` |
+| Any other row validation fails, such as a missing required field or invalid field value | `REJECTED` | Do not write the row | `row_number`, `outcome: REJECTED`, field-specific `errors` |
+| An unexpected processing or storage error occurs after row validation | `REJECTED` | Roll back that row only; continue processing other rows | `row_number`, `outcome: REJECTED`, `reason: processing_error` |
+
+#### CSV Precedence and Summary Rules
+
+1. File-level errors have precedence over row processing. Empty, undecodable, unparseable, oversized,
+  or missing-required-header files are rejected as a whole and produce no row writes.
+2. For a processable file, row-level validation is evaluated before duplicate classification. A row with
+  an invalid phone or another invalid required value is `REJECTED`, even if its raw phone text appears
+  elsewhere in the file.
+3. After a row is valid and normalized, duplicate-within-file classification precedes existing-record
+  matching. Only the first canonical phone occurrence can be `CREATED` or `UPDATED`; later occurrences
+  are `SKIPPED`.
+4. An unexpected error affects only the current row, is reported as `REJECTED` with a processing-error
+  reason, and MUST NOT prevent valid rows from being committed.
+5. The response MUST contain exactly one result per submitted data row. Its final summary MUST contain:
+  `total_rows`, `successful_rows`, `created_rows`, `updated_rows`, `failed_rows`, `skipped_rows`, and
+  `row_errors`. `successful_rows` counts `CREATED` plus `UPDATED` outcomes; `created_rows` counts
+  `CREATED` outcomes only; `updated_rows` counts `UPDATED` outcomes; `failed_rows` counts `REJECTED`
+  outcomes; `skipped_rows` counts `SKIPPED` outcomes. `row_errors` contains every rejected row number
+  and its field-specific or processing-error reason.
 
 ### Security and Privacy Requirements
 
@@ -401,10 +482,13 @@ management; advanced calendar administration; and automated marketing campaigns.
   otherwise the assistant requests a clearer value.
 - Booking cancellation and rescheduling are excluded from the initial happy path unless required by
   the approved Hello Oscar contract or a stakeholder decision.
-- The default CSV policy is partial success with explicit row-level reporting, subject to approval.
+- The CSV policy is partial success with explicit row-level reporting: valid rows are committed even when
+  other rows fail.
 - The Hello Oscar contract will be supplied and approved before planning; no provider contract behavior
   is inferred in this specification.
 - The MVP accepts visitor input as text messages only; voice and image interpretation are deferred.
+- Proposal inactivity is calculated with the backend server's UTC clock. Every valid inbound interaction
+  while a proposal is active resets the inactivity timer from its accepted server timestamp.
 
 ## Open Questions
 

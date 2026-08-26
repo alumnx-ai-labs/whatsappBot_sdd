@@ -30,11 +30,11 @@ processing (research.md item 7).
 ```
 
 Field mapping: `query → text`, `phoneNumber → phone`. `message_id` is absent in this shape; the
-normalizer derives a fallback idempotency key (research.md item 7, flagged NEEDS CLARIFICATION).
+normalizer derives a fallback idempotency key as defined by the approved provider delivery contract.
 
 ## Normalization pipeline (in order)
 
-1. **Validate payload**: request body must match Shape A or Shape B (Zod discriminated schema); anything
+1. **Validate payload**: request body must match Shape A or Shape B (server-side schema validation); anything
    else → `400 Bad Request` with no processing.
 2. **Normalize payload** to `{ phone, text, messageId }`.
 3. **Normalize phone number** to canonical E.164 (research.md item 6). Malformed/unparseable phone →
@@ -81,8 +81,7 @@ normalizer derives a fallback idempotency key (research.md item 7, flagged NEEDS
 
 `handled: true` is returned **only** when:
 - An active `ConversationSession` already exists for the canonical phone (owned by this bot), **or**
-- The message matches an approved bot-specific routing trigger (NEEDS CLARIFICATION — trigger values not
-  yet defined; until approved, this branch is inactive).
+- The message matches the approved, case-insensitive first-contact routing trigger `Hello Oscar`.
 
 Generic greetings (`hi`, `hello`, `hie`, and equivalents) with **no** active session **MUST** return
 `{ "handled": false }`. This is enforced as a business rule, not left to LangChain agent judgment.
