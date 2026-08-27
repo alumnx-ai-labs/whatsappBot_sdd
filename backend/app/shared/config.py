@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     proposal_expiry_minutes: int = 30
     default_phone_country: str = "IN"
+    business_timezone: str = "UTC"
     supported_locations: str = ""
 
     google_api_key: str = ""

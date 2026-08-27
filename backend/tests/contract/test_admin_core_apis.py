@@ -75,6 +75,15 @@ def test_csv_reports_each_row(client, test_db_engine) -> None:
         "REJECTED",
         "SKIPPED",
     ]
+    body = response.json()
+    assert body["total_rows"] == 3
+    assert body["successful_rows"] == 1
+    assert body["created_rows"] == 1
+    assert body["updated_rows"] == 0
+    assert body["failed_rows"] == 1
+    assert body["skipped_rows"] == 1
+    assert body["row_errors"][0]["row_number"] == 3
+    assert "whatsappPhone" in body["row_errors"][0]["errors"]
 
 
 def test_bookings_api_returns_confirmed_only(client, test_db_engine) -> None:

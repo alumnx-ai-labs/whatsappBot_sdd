@@ -32,25 +32,37 @@ report. No rows are silently discarded; every row appears in the report with an 
 **Response (200)**:
 ```json
 {
-  "batchId": "uuid",
-  "totalRows": 10,
-  "accepted": 8,
-  "rejected": 2,
+  "batch_id": "uuid",
+  "total_rows": 10,
+  "successful_rows": 8,
+  "created_rows": 6,
+  "updated_rows": 2,
+  "failed_rows": 1,
+  "skipped_rows": 1,
+  "row_errors": [
+    { "row_number": 4, "errors": { "whatsappPhone": "must be a valid phone number" } }
+  ],
   "rows": [
-    { "rowNumber": 2, "outcome": "CREATED" },
-    { "rowNumber": 3, "outcome": "UPDATED" },
-    { "rowNumber": 4, "outcome": "REJECTED", "reason": "whatsappPhone is not a valid phone number" },
-    { "rowNumber": 5, "outcome": "SKIPPED", "reason": "duplicate of row 2 within this file" }
+    { "row_number": 2, "outcome": "CREATED" },
+    { "row_number": 3, "outcome": "UPDATED" },
+    { "row_number": 4, "outcome": "REJECTED", "errors": { "whatsappPhone": "must be a valid phone number" } },
+    { "row_number": 5, "outcome": "SKIPPED", "reason": "duplicate of row 2 within this file", "duplicate_of_row": 2 }
   ]
 }
 ```
 
-- `outcome` values: `CREATED`, `UPDATED`, `SKIPPED`, `REJECTED` (matches FR-019).
-- Row numbers are 1-based and match the source file, counting the header row as row 1 (so data rows
-  start at row 2) — exact convention MUST be confirmed and documented in the final approved CSV contract,
-  but numbering MUST be stable and traceable back to the file as submitted (FR-018).
-- Partial success policy: valid rows are committed even if other rows in the same file are rejected,
-  consistent with the spec's stated default assumption (subject to final approval, spec Open item).
+- `outcome` values are exactly `CREATED`, `UPDATED`, `SKIPPED`, and `REJECTED` (FR-019).
+- Row numbers are 1-based and match the source file, with the header as row 1 and data beginning at row 2.
+- `successful_rows` equals `created_rows + updated_rows`; `failed_rows` equals rejected rows; and
+  `skipped_rows` equals skipped duplicates. These totals MUST equal the row-level outcomes.
+- `row_errors` contains every rejected row number and its field-specific validation or processing error.
+- The first valid canonical phone occurrence is processed. Later canonical-equivalent rows are `SKIPPED`
+  and include `duplicate_of_row`.
+- A valid row matching an existing system record is `UPDATED`.
+- Unexpected row processing errors reject only the affected row and do not prevent valid rows from being
+  committed. This is the authoritative partial-success policy.
+- File-level errors (empty, undecodable, malformed, oversized, or missing required headers) reject the
+  entire upload before any row is committed.
 
 ## Upload progress (frontend behavior)
 

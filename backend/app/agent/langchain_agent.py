@@ -1,12 +1,21 @@
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain.agents import create_agent
 
 from app.agent.output_schemas import AgentAction, AgentOutput
 from app.agent.tools.meeting_tools import TOOLS
 from app.shared.config import settings
+
+
+def _business_today() -> date:
+    try:
+        tz = ZoneInfo(settings.business_timezone)
+    except (KeyError, ValueError):
+        tz = UTC
+    return datetime.now(tz).date()
 
 
 class LangChainAgent:
@@ -47,28 +56,65 @@ class LangChainAgent:
 
     def _fallback(self, *, text: str, context: dict) -> AgentOutput:
         fields: dict[str, str] = {}
-        name_match = re.search(r"(?:my name is|i am|i'm)\s+([A-Za-z][A-Za-z ]+)", text, re.I)
-        business_match = re.search(r"(?:business is|from|at)\s+([A-Za-z][A-Za-z ]+)", text, re.I)
+        name_match = re.search(
+            r"(?:my name is|i am|i'm)\s+([A-Za-z][A-Za-z ]*?)(?=\s+(?:and|,|business)\b|$)",
+            text,
+            re.I,
+        )
+        business_match = re.search(
+            r"(?:business is|from)\s+([A-Za-z][A-Za-z ]*?)(?=\s+(?:and|for|on|at|in)\b|$)",
+            text,
+            re.I,
+        )
         if name_match and "name" not in context:
             fields["name"] = name_match.group(1).strip()
         if business_match and "business_name" not in context:
             fields["business_name"] = business_match.group(1).strip()
 
-        if "meeting_date" in context or "meeting_time" in context or "meeting" in text.casefold():
+        meeting_intent = re.search(
+            r"\b(meeting|meet|appointment|schedule|book|booking)\b", text, re.I
+        )
+        if "meeting_date" in context or "meeting_time" in context or meeting_intent:
             date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", text)
             if date_match:
                 fields["meeting_date"] = date_match.group(1)
             elif "tomorrow" in text.casefold():
-                fields["meeting_date"] = (date.today() + timedelta(days=1)).isoformat()
+                fields["meeting_date"] = (_business_today() + timedelta(days=1)).isoformat()
             elif "today" in text.casefold():
-                fields["meeting_date"] = date.today().isoformat()
+                fields["meeting_date"] = _business_today().isoformat()
 
-            time_match = re.search(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b", text, re.I)
+            if not date_match:
+                weekday_match = re.search(
+                    r"\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b",
+                    text,
+                    re.I,
+                )
+                if weekday_match:
+                    target_weekday = [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ].index(weekday_match.group(1).casefold())
+                    days_ahead = (target_weekday - _business_today().weekday()) % 7 or 7
+                    fields["meeting_date"] = (
+                        _business_today() + timedelta(days=days_ahead)
+                    ).isoformat()
+
+            time_match = re.search(r"(?<![\d-])\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b", text, re.I)
             if time_match:
                 fields["meeting_time"] = time_match.group(1).replace(" ", "").lower()
-            location_match = re.search(r"\bat\s+(.+?)(?:\.|$)", text, re.I)
-            if location_match:
-                fields["location"] = location_match.group(1).strip()
+            location_matches = re.findall(
+                r"\b(?:at|in)\s+(?!\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b)"
+                r"([A-Za-z][A-Za-z0-9 &'-]*?)(?=\s+(?:on|for)\b|[,.]|$)",
+                text,
+                re.I,
+            )
+            if location_matches:
+                fields["location"] = location_matches[-1].strip()
 
         merged = {**context, **fields}
         if not merged.get("name") or not merged.get("business_name"):

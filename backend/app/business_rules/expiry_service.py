@@ -20,7 +20,7 @@ def expire_if_stale(
         updated_at = updated_at.replace(tzinfo=UTC)
 
     age_seconds = (current_time - updated_at).total_seconds()
-    if session.state not in _EXPIRABLE_STATES or age_seconds <= expiry_minutes * 60:
+    if session.state not in _EXPIRABLE_STATES or age_seconds < expiry_minutes * 60:
         return False
 
     session.state = "EXPIRED"
