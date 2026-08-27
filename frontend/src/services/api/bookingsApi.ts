@@ -3,6 +3,7 @@ import { apiRequest } from './client';
 export type Booking = {
   id: string;
   customerName: string;
+  customerPhone: string;
   businessName: string;
   meetingDate: string;
   meetingTime: string;

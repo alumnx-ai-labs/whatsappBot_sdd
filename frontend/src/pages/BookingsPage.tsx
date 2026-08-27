@@ -31,7 +31,7 @@ export function BookingsPage() {
       {loading && <p className="state">Loading bookings...</p>}
       {error && <div className="state error"><p>{error}</p><button onClick={() => void load()}>Try again</button></div>}
       {!loading && !error && bookings.length === 0 && <p className="state">No confirmed bookings yet.</p>}
-      {!loading && !error && bookings.length > 0 && <section className="table-wrap"><table><thead><tr><th>Customer</th><th>Business</th><th>Date</th><th>Time</th><th>Location</th><th>Status</th><th>Created</th></tr></thead><tbody>{bookings.map((booking) => <tr key={booking.id}><td>{booking.customerName}</td><td>{booking.businessName}</td><td>{booking.meetingDate}</td><td>{booking.meetingTime}</td><td>{booking.location}</td><td><span className="status">{booking.status}</span></td><td>{new Date(booking.createdAt).toLocaleString()}</td></tr>)}</tbody></table></section>}
+      {!loading && !error && bookings.length > 0 && <section className="table-wrap"><table><thead><tr><th>Customer</th><th>Phone</th><th>Business</th><th>Date</th><th>Time</th><th>Location</th><th>Status</th><th>Created</th></tr></thead><tbody>{bookings.map((booking) => <tr key={booking.id}><td>{booking.customerName}</td><td>{booking.customerPhone}</td><td>{booking.businessName}</td><td>{booking.meetingDate}</td><td>{booking.meetingTime}</td><td>{booking.location}</td><td><span className="status">{booking.status}</span></td><td>{new Date(booking.createdAt).toLocaleString()}</td></tr>)}</tbody></table></section>}
     </main>
   );
 }
