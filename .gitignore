@@ -1,22 +1,33 @@
-node_modules/
-dist/
-build/
-coverage/
-*.log
-.env
-.env.*
-!.env.example
+# macOS
 .DS_Store
-.vscode/
-.idea/
-*.tsbuildinfo
 
-# Python backend
+# Python
 __pycache__/
-*.pyc
-.venv/
-venv/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 backend/data/*.db
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Local tooling and editor state
+.vscode/*.local.json
+.idea/
+
+# Logs
+*.log
